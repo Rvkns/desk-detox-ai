@@ -1,0 +1,7 @@
+{
+  "name": "Desk Detox AI",
+  "description": "Un assistente esecutivo virtuale che analizza la tua scrivania disordinata, estrae i dati dai documenti e organizza tutto in azioni, archivio o cestino.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
