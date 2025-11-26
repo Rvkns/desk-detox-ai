@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Camera, Upload, Image as ImageIcon, FileVideo } from 'lucide-react';
 
 interface UploadViewProps {
@@ -12,6 +12,24 @@ const UploadView: React.FC<UploadViewProps> = ({ onImageSelected, isLoading }) =
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [cameraActive, setCameraActive] = useState(false);
+  const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
+
+  // Effetto per collegare lo stream al video quando il componente video viene renderizzato
+  useEffect(() => {
+    if (cameraActive && activeStream && videoRef.current) {
+      videoRef.current.srcObject = activeStream;
+      videoRef.current.play().catch(e => console.error("Errore avvio video:", e));
+    }
+  }, [cameraActive, activeStream]);
+
+  // Cleanup: spegne la camera se il componente viene smontato
+  useEffect(() => {
+    return () => {
+      if (activeStream) {
+        activeStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [activeStream]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -22,7 +40,6 @@ const UploadView: React.FC<UploadViewProps> = ({ onImageSelected, isLoading }) =
     const reader = new FileReader();
     reader.onloadend = () => {
       const result = reader.result as string;
-      // Extract base64 part
       const base64 = result.split(',')[1];
       onImageSelected(base64);
     };
@@ -48,14 +65,20 @@ const UploadView: React.FC<UploadViewProps> = ({ onImageSelected, isLoading }) =
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setCameraActive(true);
-      }
+      // Richiede solo il video, preferendo la camera posteriore (environment)
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' },
+        audio: false
+      });
+      
+      // 1. Salva lo stream
+      setActiveStream(stream);
+      // 2. Attiva la UI della camera (questo farà apparire il tag <video>)
+      setCameraActive(true);
+      
     } catch (err) {
       console.error("Camera access denied:", err);
-      alert("Impossibile accedere alla fotocamera. Controlla i permessi.");
+      alert("Impossibile accedere alla fotocamera. Assicurati di aver concesso i permessi e di usare HTTPS.");
     }
   };
 
@@ -63,65 +86,67 @@ const UploadView: React.FC<UploadViewProps> = ({ onImageSelected, isLoading }) =
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
+      
+      // Imposta dimensioni canvas uguali al video reale
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
+      
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const dataUrl = canvas.toDataURL('image/jpeg');
         const base64 = dataUrl.split(',')[1];
         
-        // Stop stream
-        const stream = video.srcObject as MediaStream;
-        stream?.getTracks().forEach(track => track.stop());
-        setCameraActive(false);
-        
+        stopCamera();
         onImageSelected(base64);
       }
     }
   };
 
   const stopCamera = () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
-        setCameraActive(false);
+      if (activeStream) {
+        activeStream.getTracks().forEach(track => track.stop());
+        setActiveStream(null);
       }
+      setCameraActive(false);
   }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[80vh] px-4">
       <div className="max-w-2xl w-full text-center space-y-8">
         
-        <div className="space-y-4">
-            <div className="inline-flex items-center justify-center p-4 bg-green-100 rounded-2xl mb-2">
-                <div className="relative">
-                    <ImageIcon className="w-10 h-10 text-green-600" />
-                    <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5">
-                        <div className="bg-red-500 w-3 h-3 rounded-full animate-pulse"></div>
-                    </div>
-                </div>
-            </div>
-            <h1 className="text-4xl md:text-5xl font-bold text-gray-900 tracking-tight">
-            Desk Detox AI
-            </h1>
-            <p className="text-lg text-gray-500 max-w-lg mx-auto">
-            Il tuo assistente esecutivo per il disordine. Carica una foto della tua scrivania o dei tuoi documenti e lascia che l'IA organizzi tutto.
-            </p>
-        </div>
+        {!cameraActive && (
+          <div className="space-y-4">
+              <div className="inline-flex items-center justify-center p-4 bg-green-100 rounded-2xl mb-2">
+                  <div className="relative">
+                      <ImageIcon className="w-10 h-10 text-green-600" />
+                      <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5">
+                          <div className="bg-red-500 w-3 h-3 rounded-full animate-pulse"></div>
+                      </div>
+                  </div>
+              </div>
+              <h1 className="text-4xl md:text-5xl font-bold text-gray-900 tracking-tight">
+              Desk Detox AI
+              </h1>
+              <p className="text-lg text-gray-500 max-w-lg mx-auto">
+              Il tuo assistente esecutivo per il disordine. Carica una foto della tua scrivania o dei tuoi documenti e lascia che l'IA organizzi tutto.
+              </p>
+          </div>
+        )}
 
         {cameraActive ? (
-            <div className="relative rounded-2xl overflow-hidden shadow-2xl bg-black w-full max-w-md mx-auto aspect-[3/4] md:aspect-video">
+            <div className="relative rounded-2xl overflow-hidden shadow-2xl bg-black w-full max-w-md mx-auto aspect-[3/4] md:aspect-video flex items-center justify-center">
                 <video 
                     ref={videoRef} 
                     autoPlay 
                     playsInline 
+                    muted
                     className="w-full h-full object-cover"
                 />
-                <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-4">
+                <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-4 z-20">
                     <button 
                         onClick={stopCamera}
-                        className="bg-white/20 backdrop-blur-md text-white px-6 py-3 rounded-full font-semibold hover:bg-white/30 transition"
+                        className="bg-white/20 backdrop-blur-md text-white px-6 py-3 rounded-full font-semibold hover:bg-white/30 transition shadow-lg"
                     >
                         Annulla
                     </button>
